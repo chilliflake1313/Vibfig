@@ -15,6 +15,7 @@ import ReactFlow, {
   type ReactFlowInstance,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import CustomEdge from './components/CustomEdge'
 import CustomNode from './components/CustomNode'
 import { generateGraph } from './utils/generateGraph'
 import { getLayoutedElements } from './utils/elkLayout'
@@ -30,6 +31,14 @@ type CustomNodeData = {
 }
 
 type NodeDirection = 'top' | 'right' | 'bottom' | 'left'
+type EdgeStyleType = 'solid' | 'dashed' | 'dotted'
+
+type CustomEdgeData = {
+  styleType?: EdgeStyleType
+  activeEdgeId?: string | null
+  onOpenStyleMenu?: (edgeId: string) => void
+  onChangeStyle?: (edgeId: string, styleType: EdgeStyleType) => void
+}
 
 const oppositeDirection: Record<NodeDirection, NodeDirection> = {
   top: 'bottom',
@@ -47,6 +56,10 @@ const nodeTypes = {
   custom: CustomNode,
 }
 
+const edgeTypes = {
+  custom: CustomEdge,
+}
+
 const defaultEdgeOptions: DefaultEdgeOptions = {
   type: 'smoothstep',
   markerEnd: {
@@ -61,9 +74,13 @@ const withEdgeDefaults = (inputEdges: Edge[]): Edge[] =>
   inputEdges.map((edge, index) => ({
     ...edge,
     id: edge.id || `e-${edge.source}-${edge.target}-${index}`,
-    type: 'smoothstep',
+    type: 'custom',
     markerEnd: edge.markerEnd ?? defaultEdgeOptions.markerEnd,
     style: edge.style ?? defaultEdgeOptions.style,
+    data: {
+      ...(edge.data ?? {}),
+      styleType: ((edge.data as CustomEdgeData | undefined)?.styleType ?? 'solid') as EdgeStyleType,
+    },
   }))
 
 const cloneGraph = (nodes: Node<CustomNodeData>[], edges: Edge[]): GraphSnapshot => ({
@@ -133,6 +150,7 @@ function App() {
   const [input, setInput] = useState('Idea')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
+  const [activeEdgeId, setActiveEdgeId] = useState<string | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [undoStack, setUndoStack] = useState<GraphSnapshot[]>([])
   const [redoStack, setRedoStack] = useState<GraphSnapshot[]>([])
@@ -207,6 +225,17 @@ function App() {
     commitGraph(nextNodes, edgesRef.current)
   }
 
+  const updateEdgeStyle = (edgeId: string, styleType: EdgeStyleType) => {
+    const nextEdges = edgesRef.current.map((edge) =>
+      edge.id === edgeId
+        ? { ...edge, data: { ...(edge.data ?? {}), styleType } }
+        : edge,
+    )
+
+    commitGraph(nodesRef.current, nextEdges)
+    setActiveEdgeId(null)
+  }
+
   const addNodeFromHandle = (id: string, direction: NodeDirection) => {
     if (isLockedRef.current) return
 
@@ -254,6 +283,7 @@ function App() {
     commitGraph(nextNodes, nextEdges)
     setSelectedNodeId(newNodeId)
     setActiveNodeId(newNodeId)
+    setActiveEdgeId(null)
   }
 
   const generate = async () => {
@@ -287,6 +317,7 @@ function App() {
 
       commitGraph(layoutedNodes, withEdgeDefaults(layoutedEdges))
       setSelectedNodeId(null)
+      setActiveEdgeId(null)
     } catch (error) {
       alert(`Generate failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
@@ -309,6 +340,7 @@ function App() {
 
     const nextEdges = addEdge(newEdge, edgesRef.current)
     commitGraph(nodesRef.current, nextEdges)
+    setActiveEdgeId(null)
   }
 
   const createNewNode = () => {
@@ -341,6 +373,7 @@ function App() {
     commitGraph([...nodesRef.current, newNode], edgesRef.current)
     setSelectedNodeId(newNode.id)
     setActiveNodeId(newNode.id)
+    setActiveEdgeId(null)
   }
 
   useEffect(() => {
@@ -384,6 +417,7 @@ function App() {
     commitGraph(nextNodes, nextEdges)
     setSelectedNodeId(null)
     setActiveNodeId(null)
+    setActiveEdgeId(null)
   }
 
   const undo = () => {
@@ -421,11 +455,23 @@ function App() {
     },
   }))
 
+  const edgesForCanvas = edges.map((edge) => ({
+    ...edge,
+    type: 'custom',
+    data: {
+      ...(edge.data ?? {}),
+      styleType: ((edge.data as CustomEdgeData | undefined)?.styleType ?? 'solid') as EdgeStyleType,
+      activeEdgeId,
+      onOpenStyleMenu: setActiveEdgeId,
+      onChangeStyle: updateEdgeStyle,
+    },
+  }))
+
   return (
     <div className="relative h-screen w-screen">
       <ReactFlow
         nodes={nodesForCanvas}
-        edges={edges}
+        edges={edgesForCanvas}
         onInit={(instance) => {
           reactFlowRef.current = instance
         }}
@@ -436,8 +482,10 @@ function App() {
         onPaneClick={() => {
           setSelectedNodeId(null)
           setActiveNodeId(null)
+          setActiveEdgeId(null)
         }}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         nodesDraggable={!isLocked}
         nodesConnectable={!isLocked}
