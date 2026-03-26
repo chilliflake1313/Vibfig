@@ -68,46 +68,44 @@ function App() {
     )
   }
 
-  const generate = async (label: string) => {
-    const rawData = {
-      label,
-      children: [
-        { label: 'Module A', children: [{ label: 'Task 1' }, { label: 'Task 2' }] },
-        { label: 'Module B', children: [{ label: 'Task 3' }, { label: 'Task 4' }] },
-        { label: 'Module C', children: [{ label: 'Task 5' }, { label: 'Task 6' }] },
-      ],
-    }
+  const generate = async () => {
+    if (!input.trim()) return
 
-    const { nodes: generatedNodes, edges: generatedEdges } = generateGraph(rawData)
-    if (import.meta.env.DEV) {
-      console.debug('Generated graph:', {
-        nodeCount: generatedNodes.length,
-        edgeCount: generatedEdges.length,
+    try {
+      const response = await fetch('http://localhost:5000/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idea: input.trim() }),
       })
-    }
 
-    const typedNodes = generatedNodes.map((node) => ({
-      ...node,
-      type: 'custom',
-      data: {
-        ...node.data,
+      if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate')
+
+      const data = await response.json()
+      const { nodes: generatedNodes, edges: generatedEdges } = generateGraph(data, {
         onChange: updateNodeLabel,
         onResize: updateNodeSize,
-      },
-    }))
+      })
 
-    const { nodes: layoutedNodes, edges: layoutedEdges } = await getLayoutedElements(
-      typedNodes,
-      generatedEdges,
-    )
+      const typedNodes = generatedNodes.map((n) => ({
+        ...n,
+        type: 'custom' as const,
+      })) as Node<CustomNodeData>[]
 
-    setNodes(layoutedNodes)
-    setEdges(withEdgeDefaults(layoutedEdges))
-    setSelectedNode(null)
+      const { nodes: layoutedNodes, edges: layoutedEdges } = await getLayoutedElements(
+        typedNodes,
+        generatedEdges,
+      )
+
+      setNodes(layoutedNodes)
+      setEdges(withEdgeDefaults(layoutedEdges))
+      setSelectedNode(null)
+    } catch (error) {
+      alert(`Generate failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   useEffect(() => {
-    void generate('Idea')
+    // Don't generate on mount - wait for user input
   }, [])
 
   const onConnect = (params: Connection) => {
@@ -163,8 +161,7 @@ function App() {
   }
 
   const handleGenerate = () => {
-    if (!input.trim()) return
-    void generate(input.trim())
+    void generate()
   }
 
   return (

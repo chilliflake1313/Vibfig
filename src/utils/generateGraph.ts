@@ -5,11 +5,19 @@ export type InputNode = {
   children?: InputNode[]
 }
 
-type GraphNodeData = {
+export type GraphNodeData = {
   label: string
+  onChange?: (id: string, label: string) => void
+  onResize?: (id: string, size: { width: number; height: number }) => void
 }
 
-export const generateGraph = (data: InputNode): { nodes: Node<GraphNodeData>[]; edges: Edge[] } => {
+export const generateGraph = (
+  data: InputNode,
+  callbacks?: {
+    onChange?: (id: string, label: string) => void
+    onResize?: (id: string, size: { width: number; height: number }) => void
+  },
+): { nodes: Node<GraphNodeData>[]; edges: Edge[] } => {
   const nodes: Node<GraphNodeData>[] = []
   const edges: Edge[] = []
   let idCounter = 1
@@ -19,7 +27,7 @@ export const generateGraph = (data: InputNode): { nodes: Node<GraphNodeData>[]; 
 
     nodes.push({
       id: currentId,
-      data: { label: node.label },
+      data: { label: node.label, ...callbacks },
       position: { x: 0, y: 0 },
     })
 
