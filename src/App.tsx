@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactFlow, {
   Background,
-  Controls,
   MarkerType,
   addEdge,
-  useEdgesState,
-  useNodesState,
+  applyEdgeChanges,
+  applyNodeChanges,
+  useReactFlow,
   type Connection,
   type DefaultEdgeOptions,
   type Edge,
   type Node,
+  type OnEdgesChange,
+  type OnNodesChange,
+  type ReactFlowInstance,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import CustomNode from './components/CustomNode'
@@ -20,6 +23,11 @@ type CustomNodeData = {
   label: string
   onChange: (id: string, label: string) => void
   onResize: (id: string, size: { width: number; height: number }) => void
+}
+
+type GraphSnapshot = {
+  nodes: Node<CustomNodeData>[]
+  edges: Edge[]
 }
 
 const nodeTypes = {
@@ -45,27 +53,144 @@ const withEdgeDefaults = (inputEdges: Edge[]): Edge[] =>
     style: edge.style ?? defaultEdgeOptions.style,
   }))
 
+const cloneGraph = (nodes: Node<CustomNodeData>[], edges: Edge[]): GraphSnapshot => ({
+  nodes: nodes.map((node) => ({
+    ...node,
+    position: { ...node.position },
+    data: { ...node.data },
+    ...(node.positionAbsolute ? { positionAbsolute: { ...node.positionAbsolute } } : {}),
+  })),
+  edges: edges.map((edge) => ({ ...edge })),
+})
+
+type CanvasControlsProps = {
+  canUndo: boolean
+  canRedo: boolean
+  isLocked: boolean
+  onUndo: () => void
+  onRedo: () => void
+  onToggleLock: () => void
+}
+
+function CanvasControls({
+  canUndo,
+  canRedo,
+  isLocked,
+  onUndo,
+  onRedo,
+  onToggleLock,
+}: CanvasControlsProps) {
+  const { zoomIn, zoomOut } = useReactFlow()
+
+  return (
+    <div className="absolute right-4 bottom-4 z-20 flex flex-col gap-2 rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg">
+      <button
+        onClick={onUndo}
+        disabled={!canUndo}
+        className="h-9 w-24 rounded bg-black text-sm text-white disabled:opacity-40"
+      >
+        Undo
+      </button>
+      <button
+        onClick={onRedo}
+        disabled={!canRedo}
+        className="h-9 w-24 rounded bg-black text-sm text-white disabled:opacity-40"
+      >
+        Redo
+      </button>
+      <button onClick={() => zoomIn()} className="h-9 w-24 rounded border border-gray-300 bg-gray-100 text-sm">
+        Zoom In
+      </button>
+      <button onClick={() => zoomOut()} className="h-9 w-24 rounded border border-gray-300 bg-gray-100 text-sm">
+        Zoom Out
+      </button>
+      <button
+        onClick={onToggleLock}
+        className={`h-9 w-24 rounded text-sm text-white ${isLocked ? 'bg-green-600' : 'bg-amber-600'}`}
+      >
+        {isLocked ? 'Unlock' : 'Lock'}
+      </button>
+    </div>
+  )
+}
+
 function App() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<CustomNodeData>([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes] = useState<Node<CustomNodeData>[]>([])
+  const [edges, setEdges] = useState<Edge[]>([])
   const [input, setInput] = useState('Idea')
-  const [selectedNode, setSelectedNode] = useState<Node<CustomNodeData> | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [isLocked, setIsLocked] = useState(false)
+  const [undoStack, setUndoStack] = useState<GraphSnapshot[]>([])
+  const [redoStack, setRedoStack] = useState<GraphSnapshot[]>([])
+
+  const nodesRef = useRef<Node<CustomNodeData>[]>([])
+  const edgesRef = useRef<Edge[]>([])
+  const isLockedRef = useRef(false)
+  const reactFlowRef = useRef<ReactFlowInstance<Node<CustomNodeData>, Edge> | null>(null)
+  const createNewNodeRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
+
+  useEffect(() => {
+    edgesRef.current = edges
+  }, [edges])
+
+  useEffect(() => {
+    isLockedRef.current = isLocked
+  }, [isLocked])
+
+  const selectedNode = selectedNodeId
+    ? nodes.find((node) => node.id === selectedNodeId) ?? null
+    : null
+
+  const commitGraph = (
+    nextNodes: Node<CustomNodeData>[],
+    nextEdges: Edge[],
+    options: { recordHistory?: boolean; clearRedo?: boolean } = {},
+  ) => {
+    const { recordHistory = true, clearRedo = true } = options
+
+    if (recordHistory) {
+      const currentSnapshot = cloneGraph(nodesRef.current, edgesRef.current)
+      setUndoStack((prev) => [...prev, currentSnapshot])
+
+      if (clearRedo) {
+        setRedoStack([])
+      }
+    }
+
+    nodesRef.current = nextNodes
+    edgesRef.current = nextEdges
+    setNodes(nextNodes)
+    setEdges(nextEdges)
+  }
+
+  const onNodesChange: OnNodesChange = (changes) => {
+    const nextNodes = applyNodeChanges(changes, nodesRef.current) as Node<CustomNodeData>[]
+    commitGraph(nextNodes, edgesRef.current)
+  }
+
+  const onEdgesChange: OnEdgesChange = (changes) => {
+    const nextEdges = applyEdgeChanges(changes, edgesRef.current)
+    commitGraph(nodesRef.current, nextEdges)
+  }
 
   const updateNodeLabel = (id: string, label: string) => {
-    setNodes((nds) =>
-      nds.map((node) => (node.id === id ? { ...node, data: { ...node.data, label } } : node)),
+    const nextNodes = nodesRef.current.map((node) =>
+      node.id === id ? { ...node, data: { ...node.data, label } } : node,
     )
 
-    setSelectedNode((current) => {
-      if (!current || current.id !== id) return current
-      return { ...current, data: { ...current.data, label } }
-    })
+    commitGraph(nextNodes, edgesRef.current)
   }
 
   const updateNodeSize = (id: string, size: { width: number; height: number }) => {
-    setNodes((nds) =>
-      nds.map((node) => (node.id === id ? { ...node, width: size.width, height: size.height } : node)),
+    const nextNodes = nodesRef.current.map((node) =>
+      node.id === id ? { ...node, width: size.width, height: size.height } : node,
     )
+
+    commitGraph(nextNodes, edgesRef.current)
   }
 
   const generate = async () => {
@@ -96,9 +221,8 @@ function App() {
         generatedEdges,
       )
 
-      setNodes(layoutedNodes)
-      setEdges(withEdgeDefaults(layoutedEdges))
-      setSelectedNode(null)
+      commitGraph(layoutedNodes, withEdgeDefaults(layoutedEdges))
+      setSelectedNodeId(null)
     } catch (error) {
       alert(`Generate failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
@@ -109,6 +233,7 @@ function App() {
   }, [])
 
   const onConnect = (params: Connection) => {
+    if (isLocked) return
     if (!params.source || !params.target) return
 
     const [newEdge] = withEdgeDefaults([
@@ -118,46 +243,100 @@ function App() {
       } as Edge,
     ])
 
-    setEdges((eds) => addEdge(newEdge, eds))
+    const nextEdges = addEdge(newEdge, edgesRef.current)
+    commitGraph(nodesRef.current, nextEdges)
   }
 
-  const addNode = () => {
-    if (!selectedNode) return
+  const createNewNode = () => {
+    if (isLockedRef.current) return
 
-    const newNode: Node = {
-      id: Date.now().toString(),
+    const fallbackPosition = {
+      x: 120 + nodesRef.current.length * 30,
+      y: 120 + nodesRef.current.length * 20,
+    }
+
+    const viewportCenter = reactFlowRef.current?.screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    })
+
+    const position = viewportCenter ?? fallbackPosition
+
+    const newNode: Node<CustomNodeData> = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type: 'custom',
       data: {
         label: 'New Node',
         onChange: updateNodeLabel,
         onResize: updateNodeSize,
       },
-      position: {
-        x: selectedNode.position.x + 200,
-        y: selectedNode.position.y,
-      },
+      position,
     }
 
-    setNodes((nds) => [...nds, newNode])
-
-    const [newEdge] = withEdgeDefaults([
-      {
-        id: `e-${selectedNode.id}-${newNode.id}`,
-        source: selectedNode.id,
-        target: newNode.id,
-      } as Edge,
-    ])
-    setEdges((eds) => [...eds, newEdge])
+    commitGraph([...nodesRef.current, newNode], edgesRef.current)
+    setSelectedNodeId(newNode.id)
   }
 
-  const deleteNode = () => {
-    if (!selectedNode) return
+  useEffect(() => {
+    createNewNodeRef.current = createNewNode
+  })
 
-    setNodes((nds) => nds.filter((node) => node.id !== selectedNode.id))
-    setEdges((eds) =>
-      eds.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id),
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.key.toLowerCase() !== 'n') return
+
+      const target = event.target as HTMLElement | null
+      if (target) {
+        const tag = target.tagName.toLowerCase()
+        const isTypingTarget =
+          target.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select'
+
+        if (isTypingTarget) return
+      }
+
+      event.preventDefault()
+      createNewNodeRef.current()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
+  const deleteNode = () => {
+    if (!selectedNode || isLocked) return
+
+    const nextNodes = nodesRef.current.filter((node) => node.id !== selectedNode.id)
+    const nextEdges = edgesRef.current.filter(
+      (edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id,
     )
-    setSelectedNode(null)
+
+    commitGraph(nextNodes, nextEdges)
+    setSelectedNodeId(null)
+  }
+
+  const undo = () => {
+    const previous = undoStack[undoStack.length - 1]
+    if (!previous) return
+
+    const currentSnapshot = cloneGraph(nodesRef.current, edgesRef.current)
+    setUndoStack((prev) => prev.slice(0, -1))
+    setRedoStack((prev) => [...prev, currentSnapshot])
+    commitGraph(previous.nodes, previous.edges, { recordHistory: false, clearRedo: false })
+  }
+
+  const redo = () => {
+    const next = redoStack[redoStack.length - 1]
+    if (!next) return
+
+    const currentSnapshot = cloneGraph(nodesRef.current, edgesRef.current)
+    setRedoStack((prev) => prev.slice(0, -1))
+    setUndoStack((prev) => [...prev, currentSnapshot])
+    commitGraph(next.nodes, next.edges, { recordHistory: false, clearRedo: false })
   }
 
   const handleGenerate = () => {
@@ -165,53 +344,67 @@ function App() {
   }
 
   return (
-    <div className="w-screen h-screen relative">
+    <div className="relative h-screen w-screen">
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        onInit={(instance) => {
+          reactFlowRef.current = instance
+        }}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onNodeClick={(_, node) => setSelectedNode(node as Node<CustomNodeData>)}
-        onPaneClick={() => setSelectedNode(null)}
+        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+        onPaneClick={() => setSelectedNodeId(null)}
         nodeTypes={nodeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
-        nodesDraggable={true}
+        nodesDraggable={!isLocked}
+        nodesConnectable={!isLocked}
+        elementsSelectable={!isLocked}
+        nodesFocusable={!isLocked}
+        edgesFocusable={!isLocked}
         fitView
         fitViewOptions={{ padding: 0.2 }}
       >
         <Background />
-        <Controls />
+        <CanvasControls
+          canUndo={undoStack.length > 0}
+          canRedo={redoStack.length > 0}
+          isLocked={isLocked}
+          onUndo={undo}
+          onRedo={redo}
+          onToggleLock={() => setIsLocked((value) => !value)}
+        />
       </ReactFlow>
 
-      <div className="absolute top-4 left-4 bg-white shadow p-2 rounded flex gap-2 z-10">
+      <div className="absolute left-4 top-4 z-10 flex gap-2 rounded bg-white p-2 shadow">
         <button
-          onClick={addNode}
-          disabled={!selectedNode}
-          className="px-3 py-1 bg-black text-white rounded disabled:opacity-50"
+          onClick={createNewNode}
+          disabled={isLocked}
+          className="rounded bg-black px-3 py-1 text-white disabled:opacity-50"
         >
-          Add
+          New
         </button>
         <button
           onClick={deleteNode}
-          disabled={!selectedNode}
-          className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50"
+          disabled={!selectedNode || isLocked}
+          className="rounded bg-red-600 px-3 py-1 text-white disabled:opacity-50"
         >
           Delete
         </button>
       </div>
 
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+      <div className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
           placeholder="Enter idea..."
-          className="px-4 py-2 border border-gray-300 rounded shadow-sm w-72 bg-white"
+          className="w-72 rounded border border-gray-300 bg-white px-4 py-2 shadow-sm"
         />
         <button
           onClick={handleGenerate}
-          className="px-6 py-2 bg-black text-white rounded shadow hover:bg-gray-800 transition"
+          className="rounded bg-black px-6 py-2 text-white shadow transition hover:bg-gray-800"
         >
           Generate
         </button>

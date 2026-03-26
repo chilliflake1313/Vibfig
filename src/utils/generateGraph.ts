@@ -13,10 +13,7 @@ export type GraphNodeData = {
 
 export const generateGraph = (
   data: InputNode,
-  callbacks?: {
-    onChange?: (id: string, label: string) => void
-    onResize?: (id: string, size: { width: number; height: number }) => void
-  },
+  callbacks?: Omit<GraphNodeData, 'label'>,
 ): { nodes: Node<GraphNodeData>[]; edges: Edge[] } => {
   const nodes: Node<GraphNodeData>[] = []
   const edges: Edge[] = []

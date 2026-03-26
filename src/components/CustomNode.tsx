@@ -13,10 +13,6 @@ export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeD
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setValue(data.label)
-  }, [data.label])
-
-  useEffect(() => {
     if (!ref.current) return
 
     const rect = ref.current.getBoundingClientRect()
@@ -34,8 +30,11 @@ export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeD
   return (
     <div
       ref={ref}
-      onDoubleClick={() => setEdit(true)}
-      className={`bg-white border rounded px-3 py-2 shadow min-w-[140px] max-w-[220px] whitespace-pre-wrap break-words ${selected ? 'border-black' : 'border-gray-300'}`}
+      onDoubleClick={() => {
+        setValue(data.label)
+        setEdit(true)
+      }}
+      className={`relative bg-white border rounded px-3 py-2 shadow min-w-[140px] max-w-[220px] whitespace-pre-wrap break-words ${selected ? 'border-black' : 'border-gray-300'}`}
     >
       {edit ? (
         <input
@@ -51,7 +50,7 @@ export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeD
           className="w-full outline-none"
         />
       ) : (
-        value
+        data.label
       )}
 
       <Handle type="target" position={Position.Left} />
