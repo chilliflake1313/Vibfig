@@ -26,8 +26,8 @@ export const getLayoutedElements = async <TData>(
     layoutOptions: elkOptions,
     children: nodes.map((node) => ({
       id: node.id,
-      width: 180,
-      height: 60,
+      width: node.width || 180,
+      height: node.height || 60,
     })),
     edges: edges.map((edge) => ({
       id: edge.id,

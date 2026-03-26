@@ -19,6 +19,7 @@ import { getLayoutedElements } from './utils/elkLayout'
 type CustomNodeData = {
   label: string
   onChange: (id: string, label: string) => void
+  onResize: (id: string, size: { width: number; height: number }) => void
 }
 
 const nodeTypes = {
@@ -61,6 +62,12 @@ function App() {
     })
   }
 
+  const updateNodeSize = (id: string, size: { width: number; height: number }) => {
+    setNodes((nds) =>
+      nds.map((node) => (node.id === id ? { ...node, width: size.width, height: size.height } : node)),
+    )
+  }
+
   const generate = async (label: string) => {
     const rawData = {
       label,
@@ -85,6 +92,7 @@ function App() {
       data: {
         ...node.data,
         onChange: updateNodeLabel,
+        onResize: updateNodeSize,
       },
     }))
 
@@ -124,6 +132,7 @@ function App() {
       data: {
         label: 'New Node',
         onChange: updateNodeLabel,
+        onResize: updateNodeSize,
       },
       position: {
         x: selectedNode.position.x + 200,
