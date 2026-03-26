@@ -9,6 +9,10 @@ export type GraphNodeData = {
   label: string
   onChange?: (id: string, label: string) => void
   onResize?: (id: string, size: { width: number; height: number }) => void
+  onAddFromHandle?: (id: string, direction: 'top' | 'right' | 'bottom' | 'left') => void
+  onActivateHandles?: (id: string | null) => void
+  activeNodeId?: string | null
+  isLocked?: boolean
 }
 
 export const generateGraph = (

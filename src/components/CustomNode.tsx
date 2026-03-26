@@ -1,37 +1,65 @@
 import { useEffect, useRef, useState } from 'react'
 import { Handle, Position, type NodeProps } from 'reactflow'
 
+type NodeDirection = 'top' | 'right' | 'bottom' | 'left'
+
 type CustomNodeData = {
   label: string
   onChange?: (id: string, label: string) => void
   onResize?: (id: string, size: { width: number; height: number }) => void
+  onAddFromHandle?: (id: string, direction: NodeDirection) => void
+  onActivateHandles?: (id: string | null) => void
+  activeNodeId?: string | null
+  isLocked?: boolean
+}
+
+const positionMap: Record<NodeDirection, Position> = {
+  top: Position.Top,
+  right: Position.Right,
+  bottom: Position.Bottom,
+  left: Position.Left,
+}
+
+const styleMap: Record<NodeDirection, string> = {
+  top: '-top-[6px] left-1/2 -translate-x-1/2',
+  right: '-right-[6px] top-1/2 -translate-y-1/2',
+  bottom: '-bottom-[6px] left-1/2 -translate-x-1/2',
+  left: '-left-[6px] top-1/2 -translate-y-1/2',
 }
 
 export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeData>) {
+  const { label, onResize } = data
   const [edit, setEdit] = useState(false)
-  const [value, setValue] = useState(data.label)
+  const [value, setValue] = useState(label)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!ref.current) return
 
     const rect = ref.current.getBoundingClientRect()
-    data.onResize?.(id, {
+    onResize?.(id, {
       width: Math.max(rect.width, 140),
       height: Math.max(rect.height, 40),
     })
-  }, [data.label, id, data])
+  }, [id, label, onResize])
 
   const handleBlur = () => {
-    data.onChange?.(id, value.trim() || data.label)
+    data.onChange?.(id, value.trim() || label)
     setEdit(false)
   }
+
+  const showDots = data.activeNodeId === id
 
   return (
     <div
       ref={ref}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        if (data.isLocked) return
+        data.onActivateHandles?.(id)
+      }}
       onDoubleClick={() => {
-        setValue(data.label)
+        setValue(label)
         setEdit(true)
       }}
       className={`relative bg-white border rounded px-3 py-2 shadow min-w-[140px] max-w-[220px] whitespace-pre-wrap break-words ${selected ? 'border-black' : 'border-gray-300'}`}
@@ -50,11 +78,36 @@ export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeD
           className="w-full outline-none"
         />
       ) : (
-        data.label
+        label
       )}
 
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
+      {(['top', 'right', 'bottom', 'left'] as NodeDirection[]).map((direction) => (
+        <Handle
+          key={`target-${direction}`}
+          id={`target-${direction}`}
+          type="target"
+          position={positionMap[direction]}
+          className="!h-0 !w-0 !border-0 !bg-transparent !opacity-0"
+        />
+      ))}
+
+      {(['top', 'right', 'bottom', 'left'] as NodeDirection[]).map((direction) => (
+        <Handle
+          key={`source-${direction}`}
+          id={`source-${direction}`}
+          type="source"
+          position={positionMap[direction]}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (!showDots || data.isLocked) return
+            data.onAddFromHandle?.(id, direction)
+          }}
+          className={`${styleMap[direction]} !h-3 !w-3 !rounded-full !border-2 !border-white !bg-blue-500 !shadow transition ${
+            showDots ? '!opacity-100' : '!opacity-0 !pointer-events-none'
+          }`}
+          title={`Create node ${direction} or drag to connect`}
+        />
+      ))}
     </div>
   )
 }

@@ -23,6 +23,19 @@ type CustomNodeData = {
   label: string
   onChange: (id: string, label: string) => void
   onResize: (id: string, size: { width: number; height: number }) => void
+  onAddFromHandle?: (id: string, direction: NodeDirection) => void
+  onActivateHandles?: (id: string | null) => void
+  activeNodeId?: string | null
+  isLocked?: boolean
+}
+
+type NodeDirection = 'top' | 'right' | 'bottom' | 'left'
+
+const oppositeDirection: Record<NodeDirection, NodeDirection> = {
+  top: 'bottom',
+  right: 'left',
+  bottom: 'top',
+  left: 'right',
 }
 
 type GraphSnapshot = {
@@ -119,6 +132,7 @@ function App() {
   const [edges, setEdges] = useState<Edge[]>([])
   const [input, setInput] = useState('Idea')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [undoStack, setUndoStack] = useState<GraphSnapshot[]>([])
   const [redoStack, setRedoStack] = useState<GraphSnapshot[]>([])
@@ -193,6 +207,55 @@ function App() {
     commitGraph(nextNodes, edgesRef.current)
   }
 
+  const addNodeFromHandle = (id: string, direction: NodeDirection) => {
+    if (isLockedRef.current) return
+
+    const baseNode = nodesRef.current.find((node) => node.id === id)
+    if (!baseNode) return
+
+    const offsets: Record<NodeDirection, { x: number; y: number }> = {
+      top: { x: 0, y: -180 },
+      right: { x: 220, y: 0 },
+      bottom: { x: 0, y: 180 },
+      left: { x: -220, y: 0 },
+    }
+
+    const newNodeId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const newNode: Node<CustomNodeData> = {
+      id: newNodeId,
+      type: 'custom',
+      data: {
+        label: 'New Node',
+        onChange: updateNodeLabel,
+        onResize: updateNodeSize,
+        onAddFromHandle: addNodeFromHandle,
+      },
+      position: {
+        x: baseNode.position.x + offsets[direction].x,
+        y: baseNode.position.y + offsets[direction].y,
+      },
+    }
+
+    const newEdges: Edge[] = [
+      {
+        id: `e-${baseNode.id}-${newNodeId}`,
+        source: baseNode.id,
+        target: newNodeId,
+        sourceHandle: `source-${direction}`,
+        targetHandle: `target-${oppositeDirection[direction]}`,
+      } as Edge,
+    ]
+
+    const nextNodes = [...nodesRef.current, newNode]
+    const nextEdges = newEdges.length
+      ? [...edgesRef.current, ...withEdgeDefaults(newEdges)]
+      : edgesRef.current
+
+    commitGraph(nextNodes, nextEdges)
+    setSelectedNodeId(newNodeId)
+    setActiveNodeId(newNodeId)
+  }
+
   const generate = async () => {
     if (!input.trim()) return
 
@@ -209,6 +272,7 @@ function App() {
       const { nodes: generatedNodes, edges: generatedEdges } = generateGraph(data, {
         onChange: updateNodeLabel,
         onResize: updateNodeSize,
+        onAddFromHandle: addNodeFromHandle,
       })
 
       const typedNodes = generatedNodes.map((n) => ({
@@ -269,12 +333,14 @@ function App() {
         label: 'New Node',
         onChange: updateNodeLabel,
         onResize: updateNodeSize,
+        onAddFromHandle: addNodeFromHandle,
       },
       position,
     }
 
     commitGraph([...nodesRef.current, newNode], edgesRef.current)
     setSelectedNodeId(newNode.id)
+    setActiveNodeId(newNode.id)
   }
 
   useEffect(() => {
@@ -317,6 +383,7 @@ function App() {
 
     commitGraph(nextNodes, nextEdges)
     setSelectedNodeId(null)
+    setActiveNodeId(null)
   }
 
   const undo = () => {
@@ -343,10 +410,21 @@ function App() {
     void generate()
   }
 
+  const nodesForCanvas = nodes.map((node) => ({
+    ...node,
+    data: {
+      ...node.data,
+      onAddFromHandle: addNodeFromHandle,
+      onActivateHandles: setActiveNodeId,
+      activeNodeId,
+      isLocked,
+    },
+  }))
+
   return (
     <div className="relative h-screen w-screen">
       <ReactFlow
-        nodes={nodes}
+        nodes={nodesForCanvas}
         edges={edges}
         onInit={(instance) => {
           reactFlowRef.current = instance
@@ -355,7 +433,10 @@ function App() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-        onPaneClick={() => setSelectedNodeId(null)}
+        onPaneClick={() => {
+          setSelectedNodeId(null)
+          setActiveNodeId(null)
+        }}
         nodeTypes={nodeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         nodesDraggable={!isLocked}
