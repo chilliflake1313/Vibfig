@@ -1,191 +1,211 @@
-import { useState } from 'react'
-import ReactFlow, { type Edge, type Node } from 'reactflow'
+import { useEffect, useState } from 'react'
+import ReactFlow, {
+  Background,
+  Controls,
+  MarkerType,
+  addEdge,
+  useEdgesState,
+  useNodesState,
+  type Connection,
+  type DefaultEdgeOptions,
+  type Edge,
+  type Node,
+} from 'reactflow'
 import 'reactflow/dist/style.css'
+import CustomNode from './components/CustomNode'
+import { generateGraph } from './utils/generateGraph'
+import { getLayoutedElements } from './utils/elkLayout'
 
-type LayoutNode = Node & { level: number; parentId?: string }
-type GraphItem = { label: string; children?: GraphItem[] }
-
-let id = 1
-
-const generateGraph = (
-  node: GraphItem,
-  parentId: string | null = null,
-  level = 0,
-  nodes: LayoutNode[] = [],
-  edges: Edge[] = [],
-): { nodes: LayoutNode[]; edges: Edge[] } => {
-  const currentId = String(id++)
-
-  nodes.push({
-    id: currentId,
-    data: { label: node.label },
-    position: { x: 0, y: 0 },
-    level,
-    parentId: parentId ?? undefined,
-  })
-
-  if (parentId) {
-    edges.push({
-      id: `e${parentId}-${currentId}`,
-      source: parentId,
-      target: currentId,
-    })
-  }
-
-  if (node.children) {
-    node.children.forEach((child) => {
-      generateGraph(child, currentId, level + 1, nodes, edges)
-    })
-  }
-
-  return { nodes, edges }
+type CustomNodeData = {
+  label: string
+  onChange: (id: string, label: string) => void
 }
 
-const layoutTree = (nodes: LayoutNode[]): LayoutNode[] => {
-  const levelMap: Record<number, LayoutNode[]> = {}
-  const parentMap: Record<string, LayoutNode[]> = {}
-
-  nodes.forEach((node) => {
-    if (!levelMap[node.level]) levelMap[node.level] = []
-    levelMap[node.level].push(node)
-
-    if (node.parentId) {
-      if (!parentMap[node.parentId]) parentMap[node.parentId] = []
-      parentMap[node.parentId].push(node)
-    }
-  })
-
-  const newNodes: LayoutNode[] = []
-  const positionedById: Record<string, LayoutNode> = {}
-
-  const root = nodes.find((n) => n.level === 0)
-  if (root) {
-    const positionedRoot = {
-      ...root,
-      position: { x: 400, y: 80 },
-    }
-
-    newNodes.push(positionedRoot)
-    positionedById[positionedRoot.id] = positionedRoot
-  }
-
-  const levels = Object.keys(levelMap).map(Number)
-  const maxLevel = levels.length ? Math.max(...levels) : 0
-
-  for (let level = 1; level <= maxLevel; level++) {
-    const nodesAtLevel = levelMap[level] || []
-    const groupMap: Record<string, LayoutNode[]> = {}
-
-    nodesAtLevel.forEach((node) => {
-      const key = node.parentId || '__rootless__'
-      if (!groupMap[key]) groupMap[key] = []
-      groupMap[key].push(node)
-    })
-
-    Object.entries(groupMap).forEach(([parentId, children]) => {
-      if (parentId === '__rootless__') {
-        children.forEach((child, index) => {
-          const positioned = {
-            ...child,
-            position: { x: 220 + index * 180, y: 80 + level * 160 },
-          }
-
-          newNodes.push(positioned)
-          positionedById[positioned.id] = positioned
-        })
-        return
-      }
-
-      const parent = positionedById[parentId]
-      if (!parent) return
-
-      const totalWidth = (children.length - 1) * 140
-
-      children.forEach((child, index) => {
-        const positioned = {
-          ...child,
-          position: {
-            x: parent.position.x - totalWidth / 2 + index * 140,
-            y: parent.position.y + 150,
-          },
-        }
-
-        newNodes.push(positioned)
-        positionedById[positioned.id] = positioned
-      })
-    })
-  }
-
-  return newNodes
+const nodeTypes = {
+  custom: CustomNode,
 }
+
+const defaultEdgeOptions: DefaultEdgeOptions = {
+  type: 'smoothstep',
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+  },
+  style: {
+    strokeWidth: 1.8,
+  },
+}
+
+const withEdgeDefaults = (inputEdges: Edge[]): Edge[] =>
+  inputEdges.map((edge, index) => ({
+    ...edge,
+    id: edge.id || `e-${edge.source}-${edge.target}-${index}`,
+    type: 'smoothstep',
+    markerEnd: edge.markerEnd ?? defaultEdgeOptions.markerEnd,
+    style: edge.style ?? defaultEdgeOptions.style,
+  }))
 
 function App() {
-  const [nodes, setNodes] = useState<Node[]>([])
-  const [edges, setEdges] = useState<Edge[]>([])
-  const [input, setInput] = useState('')
+  const [nodes, setNodes, onNodesChange] = useNodesState<CustomNodeData>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [input, setInput] = useState('Idea')
+  const [selectedNode, setSelectedNode] = useState<Node<CustomNodeData> | null>(null)
 
-  const handleSubmit = () => {
-    if (!input) return
+  const updateNodeLabel = (id: string, label: string) => {
+    setNodes((nds) =>
+      nds.map((node) => (node.id === id ? { ...node, data: { ...node.data, label } } : node)),
+    )
 
-    const data: GraphItem = {
-      label: input,
+    setSelectedNode((current) => {
+      if (!current || current.id !== id) return current
+      return { ...current, data: { ...current.data, label } }
+    })
+  }
+
+  const generate = async (label: string) => {
+    const rawData = {
+      label,
       children: [
-        {
-          label: 'Auth',
-          children: [{ label: 'Task 1' }, { label: 'Task 2' }],
-        },
-        {
-          label: 'Database',
-          children: [{ label: 'Task 3' }, { label: 'Task 4' }],
-        },
+        { label: 'Module A', children: [{ label: 'Task 1' }, { label: 'Task 2' }] },
+        { label: 'Module B', children: [{ label: 'Task 3' }, { label: 'Task 4' }] },
+        { label: 'Module C', children: [{ label: 'Task 5' }, { label: 'Task 6' }] },
       ],
     }
 
-    id = 1
-    const graph = generateGraph(data)
-    const layouted = layoutTree(graph.nodes)
+    const { nodes: generatedNodes, edges: generatedEdges } = generateGraph(rawData)
+    if (import.meta.env.DEV) {
+      console.debug('Generated graph:', {
+        nodeCount: generatedNodes.length,
+        edgeCount: generatedEdges.length,
+      })
+    }
 
-    setNodes(layouted)
-    setEdges(graph.edges)
-    setInput('')
+    const typedNodes = generatedNodes.map((node) => ({
+      ...node,
+      type: 'custom',
+      data: {
+        ...node.data,
+        onChange: updateNodeLabel,
+      },
+    }))
+
+    const { nodes: layoutedNodes, edges: layoutedEdges } = await getLayoutedElements(
+      typedNodes,
+      generatedEdges,
+    )
+
+    setNodes(layoutedNodes)
+    setEdges(withEdgeDefaults(layoutedEdges))
+    setSelectedNode(null)
+  }
+
+  useEffect(() => {
+    void generate('Idea')
+  }, [])
+
+  const onConnect = (params: Connection) => {
+    if (!params.source || !params.target) return
+
+    const [newEdge] = withEdgeDefaults([
+      {
+        ...params,
+        id: `e-${params.source}-${params.target}-${Date.now()}`,
+      } as Edge,
+    ])
+
+    setEdges((eds) => addEdge(newEdge, eds))
+  }
+
+  const addNode = () => {
+    if (!selectedNode) return
+
+    const newNode: Node = {
+      id: Date.now().toString(),
+      type: 'custom',
+      data: {
+        label: 'New Node',
+        onChange: updateNodeLabel,
+      },
+      position: {
+        x: selectedNode.position.x + 200,
+        y: selectedNode.position.y,
+      },
+    }
+
+    setNodes((nds) => [...nds, newNode])
+
+    const [newEdge] = withEdgeDefaults([
+      {
+        id: `e-${selectedNode.id}-${newNode.id}`,
+        source: selectedNode.id,
+        target: newNode.id,
+      } as Edge,
+    ])
+    setEdges((eds) => [...eds, newEdge])
+  }
+
+  const deleteNode = () => {
+    if (!selectedNode) return
+
+    setNodes((nds) => nds.filter((node) => node.id !== selectedNode.id))
+    setEdges((eds) =>
+      eds.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id),
+    )
+    setSelectedNode(null)
+  }
+
+  const handleGenerate = () => {
+    if (!input.trim()) return
+    void generate(input.trim())
   }
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      <ReactFlow nodes={nodes} edges={edges} />
-
-      <div
-        style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          display: 'flex',
-          gap: '8px',
-          zIndex: 10,
-        }}
+    <div className="w-screen h-screen relative">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onNodeClick={(_, node) => setSelectedNode(node as Node<CustomNodeData>)}
+        onPaneClick={() => setSelectedNode(null)}
+        nodeTypes={nodeTypes}
+        defaultEdgeOptions={defaultEdgeOptions}
+        nodesDraggable={true}
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
       >
+        <Background />
+        <Controls />
+      </ReactFlow>
+
+      <div className="absolute top-4 left-4 bg-white shadow p-2 rounded flex gap-2 z-10">
+        <button
+          onClick={addNode}
+          disabled={!selectedNode}
+          className="px-3 py-1 bg-black text-white rounded disabled:opacity-50"
+        >
+          Add
+        </button>
+        <button
+          onClick={deleteNode}
+          disabled={!selectedNode}
+          className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50"
+        >
+          Delete
+        </button>
+      </div>
+
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
           placeholder="Enter idea..."
-          style={{
-            padding: '8px 12px',
-            border: '1px solid #d4d4d8',
-            borderRadius: '8px',
-            minWidth: '220px',
-          }}
+          className="px-4 py-2 border border-gray-300 rounded shadow-sm w-72 bg-white"
         />
         <button
-          onClick={handleSubmit}
-          style={{
-            padding: '8px 12px',
-            border: 'none',
-            borderRadius: '8px',
-            background: '#111827',
-            color: '#ffffff',
-            cursor: 'pointer',
-          }}
+          onClick={handleGenerate}
+          className="px-6 py-2 bg-black text-white rounded shadow hover:bg-gray-800 transition"
         >
           Generate
         </button>
