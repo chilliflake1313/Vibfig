@@ -13,6 +13,8 @@ export type GraphNodeData = {
     underline: boolean
     font: string
     size: number
+    fill: string
+    border: string
   }
   onChange?: (id: string, label: string) => void
   onResize?: (id: string, size: { width: number; height: number }) => void
@@ -43,6 +45,8 @@ export const generateGraph = (
           underline: false,
           font: 'Inter',
           size: 14,
+          fill: '#18181b',
+          border: '#3f3f46',
         },
         ...callbacks,
       },

@@ -10,6 +10,8 @@ type NodeTextStyle = {
   underline: boolean
   font: string
   size: number
+  fill: string
+  border: string
 }
 
 type CustomNodeData = {
@@ -24,6 +26,9 @@ type CustomNodeData = {
   onToggleFormat?: (id: string, type: TextFormatType) => void
   onSetFont?: (id: string, font: string) => void
   onSetSize?: (id: string, size: number) => void
+  activeColorId?: string | null
+  onSetFill?: (id: string, fill: string) => void
+  onSetBorder?: (id: string, border: string) => void
   activeNodeId?: string | null
   isLocked?: boolean
 }
@@ -44,15 +49,17 @@ const styleMap: Record<NodeDirection, string> = {
 
 export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeData>) {
   const { label, onResize } = data
-  const [edit, setEdit] = useState(false)
-  const [value, setValue] = useState(label)
   const ref = useRef<HTMLDivElement>(null)
+  const editableRef = useRef<HTMLDivElement>(null)
+  const [isEditing, setIsEditing] = useState(false)
   const textStyle = data.style ?? {
     bold: false,
     italic: false,
     underline: false,
     font: 'Inter',
     size: 14,
+    fill: '#18181b',
+    border: '#3f3f46',
   }
 
   useEffect(() => {
@@ -65,13 +72,21 @@ export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeD
     })
   }, [id, label, onResize])
 
-  const handleBlur = () => {
-    data.onChange?.(id, value.trim() || label)
-    setEdit(false)
-  }
+  useEffect(() => {
+    if (!isEditing || !editableRef.current) return
+
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.selectNodeContents(editableRef.current)
+    range.collapse(false)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    editableRef.current.focus()
+  }, [isEditing])
 
   const showDots = data.activeNodeId === id
   const showEditor = data.activeEditorId === id
+  const showColor = data.activeColorId === id
 
   return (
     <div
@@ -86,11 +101,18 @@ export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeD
         e.stopPropagation()
         data.onActivateHandles?.(id)
       }}
-      onDoubleClick={() => {
-        setValue(label)
-        setEdit(true)
+      onDoubleClick={(e) => {
+        if (e.button !== 0 || data.isLocked) return
+        e.stopPropagation()
+        setIsEditing(true)
       }}
-      className={`relative bg-white border rounded px-3 py-2 shadow min-w-[140px] max-w-[220px] whitespace-pre-wrap break-words ${selected ? 'border-black' : 'border-gray-300'}`}
+      className={`relative rounded px-3 py-2 shadow whitespace-pre-wrap break-words ${selected ? 'ring-2 ring-black' : ''}`}
+      style={{
+        width: 180,
+        minHeight: 60,
+        backgroundColor: textStyle.fill,
+        border: `1px solid ${textStyle.border}`,
+      }}
     >
       {showEditor && (
         <div className="absolute -top-11 left-1/2 z-30 flex -translate-x-1/2 gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-white shadow">
@@ -147,32 +169,63 @@ export default function CustomNode({ id, data, selected }: NodeProps<CustomNodeD
         </div>
       )}
 
-      {edit ? (
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={handleBlur}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.currentTarget.blur()
-            }
-          }}
-          autoFocus
-          className="w-full outline-none"
-        />
-      ) : (
-        <span
-          style={{
-            fontWeight: textStyle.bold ? 'bold' : 'normal',
-            fontStyle: textStyle.italic ? 'italic' : 'normal',
-            textDecoration: textStyle.underline ? 'underline' : 'none',
-            fontFamily: textStyle.font,
-            fontSize: `${textStyle.size}px`,
-          }}
-        >
-          {label}
-        </span>
+      {showColor && (
+        <div className="absolute -top-14 left-1/2 z-30 flex -translate-x-1/2 gap-3 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-xs text-white shadow">
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] opacity-60">Fill</span>
+            <input
+              type="color"
+              value={textStyle.fill}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => data.onSetFill?.(id, e.target.value)}
+              className="h-6 w-8 cursor-pointer border-none bg-transparent p-0"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] opacity-60">Border</span>
+            <input
+              type="color"
+              value={textStyle.border}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => data.onSetBorder?.(id, e.target.value)}
+              className="h-6 w-8 cursor-pointer border-none bg-transparent p-0"
+            />
+          </div>
+        </div>
       )}
+
+      <div
+        ref={editableRef}
+        contentEditable={isEditing && !data.isLocked}
+        suppressContentEditableWarning
+        onBlur={(e) => {
+          const nextText = e.currentTarget.innerText
+          data.onChange?.(id, nextText)
+          setIsEditing(false)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            document.execCommand('insertLineBreak')
+            e.preventDefault()
+          }
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          if (e.button !== 0 || data.isLocked) return
+          e.stopPropagation()
+          setIsEditing(true)
+        }}
+        className="outline-none whitespace-pre-wrap break-words text-zinc-100"
+        style={{
+          fontWeight: textStyle.bold ? 'bold' : 'normal',
+          fontStyle: textStyle.italic ? 'italic' : 'normal',
+          textDecoration: textStyle.underline ? 'underline' : 'none',
+          fontFamily: textStyle.font,
+          fontSize: `${textStyle.size}px`,
+        }}
+      >
+        {label}
+      </div>
 
       {(['top', 'right', 'bottom', 'left'] as NodeDirection[]).map((direction) => (
         <Handle

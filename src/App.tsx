@@ -27,6 +27,8 @@ type NodeTextStyle = {
   underline: boolean
   font: string
   size: number
+  fill: string
+  border: string
 }
 
 type CustomNodeData = {
@@ -41,6 +43,9 @@ type CustomNodeData = {
   onToggleFormat?: (id: string, type: TextFormatType) => void
   onSetFont?: (id: string, font: string) => void
   onSetSize?: (id: string, size: number) => void
+  activeColorId?: string | null
+  onSetFill?: (id: string, fill: string) => void
+  onSetBorder?: (id: string, border: string) => void
   activeNodeId?: string | null
   isLocked?: boolean
 }
@@ -79,6 +84,8 @@ const defaultNodeTextStyle: NodeTextStyle = {
   underline: false,
   font: 'Inter',
   size: 14,
+  fill: '#18181b',
+  border: '#3f3f46',
 }
 
 const nodeTypes = {
@@ -184,6 +191,7 @@ function App() {
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
   const [nodeMenu, setNodeMenu] = useState<NodeMenuState>(null)
   const [activeEditorId, setActiveEditorId] = useState<string | null>(null)
+  const [activeColorId, setActiveColorId] = useState<string | null>(null)
   const [activeEdgeId, setActiveEdgeId] = useState<string | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [undoStack, setUndoStack] = useState<GraphSnapshot[]>([])
@@ -304,7 +312,22 @@ function App() {
 
   const toggleEditor = (nodeId: string) => {
     setActiveEditorId((current) => (current === nodeId ? null : nodeId))
+    setActiveColorId(null)
     setNodeMenu(null)
+  }
+
+  const toggleColor = (nodeId: string) => {
+    setActiveColorId((current) => (current === nodeId ? null : nodeId))
+    setActiveEditorId(null)
+    setNodeMenu(null)
+  }
+
+  const setNodeFill = (id: string, fill: string) => {
+    updateNodeTextStyle(id, { fill })
+  }
+
+  const setNodeBorder = (id: string, border: string) => {
+    updateNodeTextStyle(id, { border })
   }
 
   const updateEdgeStyle = (edgeId: string, styleType: EdgeStyleType) => {
@@ -367,6 +390,8 @@ function App() {
     setSelectedNodeId(newNodeId)
     setActiveNodeId(newNodeId)
     setNodeMenu(null)
+    setActiveEditorId(null)
+    setActiveColorId(null)
     setActiveEdgeId(null)
   }
 
@@ -403,6 +428,7 @@ function App() {
       setSelectedNodeId(null)
       setNodeMenu(null)
       setActiveEditorId(null)
+      setActiveColorId(null)
       setActiveEdgeId(null)
     } catch (error) {
       alert(`Generate failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -427,6 +453,8 @@ function App() {
     const nextEdges = addEdge(newEdge, edgesRef.current)
     commitGraph(nodesRef.current, nextEdges)
     setNodeMenu(null)
+    setActiveEditorId(null)
+    setActiveColorId(null)
     setActiveEdgeId(null)
   }
 
@@ -462,6 +490,8 @@ function App() {
     setSelectedNodeId(newNode.id)
     setActiveNodeId(newNode.id)
     setNodeMenu(null)
+    setActiveEditorId(null)
+    setActiveColorId(null)
     setActiveEdgeId(null)
   }
 
@@ -508,6 +538,7 @@ function App() {
     setActiveNodeId(null)
     setNodeMenu(null)
     setActiveEditorId(null)
+    setActiveColorId(null)
     setActiveEdgeId(null)
   }
 
@@ -547,6 +578,9 @@ function App() {
       onToggleFormat: toggleTextFormat,
       onSetFont: setNodeFont,
       onSetSize: setNodeSize,
+      activeColorId,
+      onSetFill: setNodeFill,
+      onSetBorder: setNodeBorder,
       activeNodeId,
       isLocked,
     },
@@ -579,6 +613,8 @@ function App() {
           setSelectedNodeId(node.id)
           setActiveNodeId(node.id)
           setNodeMenu(null)
+          setActiveEditorId(null)
+          setActiveColorId(null)
           setActiveEdgeId(null)
         }}
         onPaneClick={() => {
@@ -586,6 +622,7 @@ function App() {
           setActiveNodeId(null)
           setNodeMenu(null)
           setActiveEditorId(null)
+          setActiveColorId(null)
           setActiveEdgeId(null)
         }}
         nodeTypes={nodeTypes}
@@ -621,6 +658,13 @@ function App() {
             className="rounded px-2 py-1 hover:bg-zinc-800"
           >
             A
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleColor(nodeMenu.nodeId)}
+            className="rounded px-2 py-1 hover:bg-zinc-800"
+          >
+            C
           </button>
         </div>
       )}
