@@ -7,6 +7,13 @@ export type InputNode = {
 
 export type GraphNodeData = {
   label: string
+  style?: {
+    bold: boolean
+    italic: boolean
+    underline: boolean
+    font: string
+    size: number
+  }
   onChange?: (id: string, label: string) => void
   onResize?: (id: string, size: { width: number; height: number }) => void
   onAddFromHandle?: (id: string, direction: 'top' | 'right' | 'bottom' | 'left') => void
@@ -28,7 +35,17 @@ export const generateGraph = (
 
     nodes.push({
       id: currentId,
-      data: { label: node.label, ...callbacks },
+      data: {
+        label: node.label,
+        style: {
+          bold: false,
+          italic: false,
+          underline: false,
+          font: 'Inter',
+          size: 14,
+        },
+        ...callbacks,
+      },
       position: { x: 0, y: 0 },
     })
 

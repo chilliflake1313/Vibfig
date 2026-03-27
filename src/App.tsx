@@ -20,12 +20,27 @@ import CustomNode from './components/CustomNode'
 import { generateGraph } from './utils/generateGraph'
 import { getLayoutedElements } from './utils/elkLayout'
 
+type TextFormatType = 'bold' | 'italic' | 'underline'
+type NodeTextStyle = {
+  bold: boolean
+  italic: boolean
+  underline: boolean
+  font: string
+  size: number
+}
+
 type CustomNodeData = {
   label: string
+  style?: NodeTextStyle
   onChange: (id: string, label: string) => void
   onResize: (id: string, size: { width: number; height: number }) => void
   onAddFromHandle?: (id: string, direction: NodeDirection) => void
   onActivateHandles?: (id: string | null) => void
+  onOpenContextMenu?: (nodeId: string, x: number, y: number) => void
+  activeEditorId?: string | null
+  onToggleFormat?: (id: string, type: TextFormatType) => void
+  onSetFont?: (id: string, font: string) => void
+  onSetSize?: (id: string, size: number) => void
   activeNodeId?: string | null
   isLocked?: boolean
 }
@@ -50,6 +65,20 @@ const oppositeDirection: Record<NodeDirection, NodeDirection> = {
 type GraphSnapshot = {
   nodes: Node<CustomNodeData>[]
   edges: Edge[]
+}
+
+type NodeMenuState = {
+  x: number
+  y: number
+  nodeId: string
+} | null
+
+const defaultNodeTextStyle: NodeTextStyle = {
+  bold: false,
+  italic: false,
+  underline: false,
+  font: 'Inter',
+  size: 14,
 }
 
 const nodeTypes = {
@@ -87,7 +116,10 @@ const cloneGraph = (nodes: Node<CustomNodeData>[], edges: Edge[]): GraphSnapshot
   nodes: nodes.map((node) => ({
     ...node,
     position: { ...node.position },
-    data: { ...node.data },
+    data: {
+      ...node.data,
+      ...(node.data.style ? { style: { ...node.data.style } } : {}),
+    },
     ...(node.positionAbsolute ? { positionAbsolute: { ...node.positionAbsolute } } : {}),
   })),
   edges: edges.map((edge) => ({ ...edge })),
@@ -150,6 +182,8 @@ function App() {
   const [input, setInput] = useState('Idea')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
+  const [nodeMenu, setNodeMenu] = useState<NodeMenuState>(null)
+  const [activeEditorId, setActiveEditorId] = useState<string | null>(null)
   const [activeEdgeId, setActiveEdgeId] = useState<string | null>(null)
   const [isLocked, setIsLocked] = useState(false)
   const [undoStack, setUndoStack] = useState<GraphSnapshot[]>([])
@@ -225,6 +259,54 @@ function App() {
     commitGraph(nextNodes, edgesRef.current)
   }
 
+  const updateNodeTextStyle = (id: string, changes: Partial<NodeTextStyle>) => {
+    const nextNodes = nodesRef.current.map((node) => {
+      if (node.id !== id) return node
+
+      const currentStyle = node.data.style ?? defaultNodeTextStyle
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          style: {
+            ...currentStyle,
+            ...changes,
+          },
+        },
+      }
+    })
+
+    commitGraph(nextNodes, edgesRef.current)
+  }
+
+  const toggleTextFormat = (id: string, type: TextFormatType) => {
+    const node = nodesRef.current.find((n) => n.id === id)
+    if (!node) return
+
+    const currentStyle = node.data.style ?? defaultNodeTextStyle
+    updateNodeTextStyle(id, { [type]: !currentStyle[type] })
+  }
+
+  const setNodeFont = (id: string, font: string) => {
+    updateNodeTextStyle(id, { font })
+  }
+
+  const setNodeSize = (id: string, size: number) => {
+    updateNodeTextStyle(id, { size })
+  }
+
+  const openNodeContextMenu = (nodeId: string, x: number, y: number) => {
+    if (isLockedRef.current) return
+    setSelectedNodeId(nodeId)
+    setActiveNodeId(nodeId)
+    setNodeMenu({ nodeId, x, y })
+  }
+
+  const toggleEditor = (nodeId: string) => {
+    setActiveEditorId((current) => (current === nodeId ? null : nodeId))
+    setNodeMenu(null)
+  }
+
   const updateEdgeStyle = (edgeId: string, styleType: EdgeStyleType) => {
     const nextEdges = edgesRef.current.map((edge) =>
       edge.id === edgeId
@@ -255,6 +337,7 @@ function App() {
       type: 'custom',
       data: {
         label: 'New Node',
+        style: { ...defaultNodeTextStyle },
         onChange: updateNodeLabel,
         onResize: updateNodeSize,
         onAddFromHandle: addNodeFromHandle,
@@ -283,6 +366,7 @@ function App() {
     commitGraph(nextNodes, nextEdges)
     setSelectedNodeId(newNodeId)
     setActiveNodeId(newNodeId)
+    setNodeMenu(null)
     setActiveEdgeId(null)
   }
 
@@ -317,6 +401,8 @@ function App() {
 
       commitGraph(layoutedNodes, withEdgeDefaults(layoutedEdges))
       setSelectedNodeId(null)
+      setNodeMenu(null)
+      setActiveEditorId(null)
       setActiveEdgeId(null)
     } catch (error) {
       alert(`Generate failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -340,6 +426,7 @@ function App() {
 
     const nextEdges = addEdge(newEdge, edgesRef.current)
     commitGraph(nodesRef.current, nextEdges)
+    setNodeMenu(null)
     setActiveEdgeId(null)
   }
 
@@ -363,6 +450,7 @@ function App() {
       type: 'custom',
       data: {
         label: 'New Node',
+        style: { ...defaultNodeTextStyle },
         onChange: updateNodeLabel,
         onResize: updateNodeSize,
         onAddFromHandle: addNodeFromHandle,
@@ -373,6 +461,7 @@ function App() {
     commitGraph([...nodesRef.current, newNode], edgesRef.current)
     setSelectedNodeId(newNode.id)
     setActiveNodeId(newNode.id)
+    setNodeMenu(null)
     setActiveEdgeId(null)
   }
 
@@ -417,6 +506,8 @@ function App() {
     commitGraph(nextNodes, nextEdges)
     setSelectedNodeId(null)
     setActiveNodeId(null)
+    setNodeMenu(null)
+    setActiveEditorId(null)
     setActiveEdgeId(null)
   }
 
@@ -448,8 +539,14 @@ function App() {
     ...node,
     data: {
       ...node.data,
+      style: node.data.style ?? { ...defaultNodeTextStyle },
       onAddFromHandle: addNodeFromHandle,
       onActivateHandles: setActiveNodeId,
+      onOpenContextMenu: openNodeContextMenu,
+      activeEditorId,
+      onToggleFormat: toggleTextFormat,
+      onSetFont: setNodeFont,
+      onSetSize: setNodeSize,
       activeNodeId,
       isLocked,
     },
@@ -478,10 +575,17 @@ function App() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+        onNodeClick={(_, node) => {
+          setSelectedNodeId(node.id)
+          setActiveNodeId(node.id)
+          setNodeMenu(null)
+          setActiveEdgeId(null)
+        }}
         onPaneClick={() => {
           setSelectedNodeId(null)
           setActiveNodeId(null)
+          setNodeMenu(null)
+          setActiveEditorId(null)
           setActiveEdgeId(null)
         }}
         nodeTypes={nodeTypes}
@@ -505,6 +609,21 @@ function App() {
           onToggleLock={() => setIsLocked((value) => !value)}
         />
       </ReactFlow>
+
+      {nodeMenu && (
+        <div
+          style={{ top: nodeMenu.y, left: nodeMenu.x }}
+          className="absolute z-50 rounded-md border border-zinc-700 bg-zinc-900 p-1 text-xs text-white shadow"
+        >
+          <button
+            type="button"
+            onClick={() => toggleEditor(nodeMenu.nodeId)}
+            className="rounded px-2 py-1 hover:bg-zinc-800"
+          >
+            A
+          </button>
+        </div>
+      )}
 
       <div className="absolute left-4 top-4 z-10 flex gap-2 rounded bg-white p-2 shadow">
         <button

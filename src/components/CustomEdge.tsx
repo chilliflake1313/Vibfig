@@ -71,7 +71,6 @@ export default function CustomEdge({
         stroke="transparent"
         strokeWidth={14}
         className="cursor-pointer"
-        onClick={openMenu}
         onContextMenu={openMenu}
       />
 
